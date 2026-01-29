@@ -1,0 +1,206 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "triggers": {},
+    "actions": {
+      "_COMMENT_": "Sanitized sample: add this to your existing Logic App where you detect employee status changes",
+      "Check_If_Terminated": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "equals": [
+                "@first(body('Parse_User_JSON')?['data'])?['employee_status']",
+                "T"
+              ]
+            }
+          ]
+        },
+        "actions": {
+          "Set_Work_Email_Var": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "workEmail",
+              "value": "@{coalesce(first(body('Parse_User_JSON')?['data'])?['work_email'], '')}"
+            }
+          },
+          "Set_Personal_Email_Var": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "personalEmail",
+              "value": "@{coalesce(first(body('Parse_User_JSON')?['data'])?['personal_email'], '')}"
+            },
+            "runAfter": {
+              "Set_Work_Email_Var": [
+                "SUCCEEDED"
+              ]
+            }
+          },
+          "Parallel_Termination_Actions": {
+            "type": "Parallel",
+            "runAfter": {
+              "Set_Personal_Email_Var": [
+                "SUCCEEDED"
+              ]
+            },
+            "branches": [
+              {
+                "actions": {
+                  "Branch_Comment": {
+                    "type": "Compose",
+                    "inputs": "Branch 1: Directory disable"
+                  },
+                  "Compose_UserData": {
+                    "type": "Compose",
+                    "inputs": {
+                      "operation": "setStatus",
+                      "status": "disabled",
+                      "userData": {
+                        "employeeId": "@{first(body('Parse_User_JSON')?['data'])?['employee_code']}",
+                        "userPrincipalName": "@{first(body('Parse_User_JSON')?['data'])?['work_email']}",
+                        "givenName": "@{first(body('Parse_User_JSON')?['data'])?['first_name']}",
+                        "sn": "@{first(body('Parse_User_JSON')?['data'])?['last_name']}",
+                        "displayName": "@{first(body('Parse_User_JSON')?['data'])?['employee_name']}",
+                        "mail": "@{first(body('Parse_User_JSON')?['data'])?['work_email']}",
+                        "employeeStatus": "T"
+                      }
+                    },
+                    "runAfter": {
+                      "Branch_Comment": [
+                        "SUCCEEDED"
+                      ]
+                    }
+                  },
+                  "Call_Directory_Runbook": {
+                    "type": "ServiceProvider",
+                    "inputs": {
+                      "parameters": {
+                        "subscriptionId": "__SUBSCRIPTION_ID__",
+                        "resourceGroup": "__RESOURCE_GROUP__",
+                        "automationAccount": "__AUTOMATION_ACCOUNT__",
+                        "runbookName": "Invoke-DirectoryUserOperation",
+                        "waitForJob": false,
+                        "runbookParameters": {
+                          "InputData": "@{string(outputs('Compose_UserData'))}"
+                        }
+                      },
+                      "serviceProviderConfiguration": {
+                        "connectionName": "__AUTOMATION_CONNECTION_NAME__",
+                        "operationId": "createJob",
+                        "serviceProviderId": "/serviceProviders/azureAutomation"
+                      }
+                    },
+                    "runAfter": {
+                      "Compose_UserData": [
+                        "SUCCEEDED"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "actions": {
+                  "Branch_Comment": {
+                    "type": "Compose",
+                    "inputs": "Branch 2: Offload/archive (based on domain)"
+                  },
+                  "Determine_Email_System": {
+                    "type": "Compose",
+                    "inputs": "@if(or(contains(variables('workEmail'), '@__DOMAIN_PRIMARY__'), contains(variables('personalEmail'), '@__DOMAIN_PRIMARY__')), if(or(contains(variables('workEmail'), '@__DOMAIN_SECONDARY__'), contains(variables('personalEmail'), '@__DOMAIN_SECONDARY__')), 'Both', 'SystemA'), if(or(contains(variables('workEmail'), '@__DOMAIN_SECONDARY__'), contains(variables('personalEmail'), '@__DOMAIN_SECONDARY__')), 'SystemB', 'None'))",
+                    "runAfter": {
+                      "Branch_Comment": [
+                        "SUCCEEDED"
+                      ]
+                    }
+                  },
+                  "Check_Has_Company_Email": {
+                    "type": "If",
+                    "expression": {
+                      "and": [
+                        {
+                          "not": {
+                            "equals": [
+                              "@outputs('Determine_Email_System')",
+                              "None"
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    "actions": {
+                      "Compose_Offload_UserData": {
+                        "type": "Compose",
+                        "inputs": {
+                          "employee_code": "@{first(body('Parse_User_JSON')?['data'])?['employee_code']}",
+                          "employee_name": "@{first(body('Parse_User_JSON')?['data'])?['employee_name']}",
+                          "employee_status": "T",
+                          "work_email": "@{variables('workEmail')}",
+                          "personal_email": "@{variables('personalEmail')}"
+                        }
+                      },
+                      "Call_Offload_Runbook": {
+                        "type": "ServiceProvider",
+                        "inputs": {
+                          "parameters": {
+                            "subscriptionId": "__SUBSCRIPTION_ID__",
+                            "resourceGroup": "__RESOURCE_GROUP__",
+                            "automationAccount": "__AUTOMATION_ACCOUNT__",
+                            "runbookName": "Invoke-TerminatedUserOffload",
+                            "waitForJob": false,
+                            "runbookParameters": {
+                              "UserData": "@{string(outputs('Compose_Offload_UserData'))}",
+                              "EmailSystem": "@{outputs('Determine_Email_System')}"
+                            }
+                          },
+                          "serviceProviderConfiguration": {
+                            "connectionName": "__AUTOMATION_CONNECTION_NAME__",
+                            "operationId": "createJob",
+                            "serviceProviderId": "/serviceProviders/azureAutomation"
+                          }
+                        },
+                        "runAfter": {
+                          "Compose_Offload_UserData": [
+                            "SUCCEEDED"
+                          ]
+                        }
+                      }
+                    },
+                    "else": {
+                      "actions": {
+                        "Log_No_Email_Account": {
+                          "type": "Compose",
+                          "inputs": {
+                            "message": "User does not have a company email - skipping offload",
+                            "emailSystem": "@{outputs('Determine_Email_System')}"
+                          }
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Determine_Email_System": [
+                        "SUCCEEDED"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "else": {
+          "actions": {
+            "Log_Not_Terminated": {
+              "type": "Compose",
+              "inputs": {
+                "message": "Employee status is not Terminated - no termination actions taken",
+                "status": "@{first(body('Parse_User_JSON')?['data'])?['employee_status']}"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+
+    "STORAGE_ACCOUNT_URI": "https://__STORAGE_ACCOUNT_NAME__.table.core.windows.net",
+    "STORAGE_ACCOUNT_KEY": "__STORAGE_ACCOUNT_KEY__",
+
+    "INCOMING_WEBHOOK_TABLE": "IncomingWebhooks",
+    "TRIGGER_THROTTLE_TABLE": "TriggerThrottle",
+
+    "WORKFLOW_A_URL": "__WORKFLOW_A_HTTP_TRIGGER_URL__",
+    "WORKFLOW_B_URL": "__WORKFLOW_B_HTTP_TRIGGER_URL__",
+
+    "WORKFLOW_SHARED_AUTH": "__WORKFLOW_SHARED_AUTH__"
+  }
+}

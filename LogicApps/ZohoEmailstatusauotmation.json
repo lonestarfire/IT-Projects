@@ -1,0 +1,123 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "triggers": {
+      "When_a_HTTP_request_is_received": {
+        "type": "Request",
+        "kind": "Http",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "triggerTime": { "type": "string" },
+              "source": { "type": "string" },
+              "message": { "type": "string" },
+              "tableName": { "type": "string" }
+            },
+            "required": [ "triggerTime", "source", "message", "tableName" ]
+          }
+        },
+        "runtimeConfiguration": {
+          "concurrency": { "runs": 1 }
+        }
+      }
+    },
+    "actions": {
+      "Get_WebhookHeaderAuth": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "__KEYVAULT_CONNECTION_NAME__"
+            }
+          },
+          "method": "get",
+          "path": "/secrets/@{encodeURIComponent('__WEBHOOK_HEADER_AUTH_SECRET_NAME__')}/value"
+        },
+        "runAfter": {},
+        "runtimeConfiguration": {
+          "secureData": {
+            "properties": [ "inputs", "outputs" ]
+          }
+        }
+      },
+      "Validate_Webhook_Auth": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "equals": [
+                "@triggerOutputs()?['headers']['x-webhook-auth']",
+                "@body('Get_WebhookHeaderAuth')?['value']"
+              ]
+            }
+          ]
+        },
+        "actions": {
+          "Get_HR_API_Key": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "referenceName": "__KEYVAULT_CONNECTION_NAME__"
+                }
+              },
+              "method": "get",
+              "path": "/secrets/@{encodeURIComponent('__HR_API_BASIC_AUTH_SECRET_NAME__')}/value"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [ "inputs", "outputs" ]
+              }
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "Terminate_Unauthorized": {
+              "type": "Terminate",
+              "inputs": {
+                "runStatus": "Failed",
+                "runError": {
+                  "code": "401",
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "Get_WebhookHeaderAuth": [ "SUCCEEDED" ]
+        }
+      },
+      "Call_Mail_Runbook": {
+        "type": "ServiceProvider",
+        "inputs": {
+          "parameters": {
+            "subscriptionId": "__SUBSCRIPTION_ID__",
+            "resourceGroup": "__RESOURCE_GROUP__",
+            "automationAccount": "__AUTOMATION_ACCOUNT__",
+            "runbookName": "Invoke-MailOperation",
+            "waitForJob": true,
+            "runbookParameters": {
+              "EmailAddress": "__EMAIL_ADDRESS__",
+              "Action": "__ACTION__"
+            }
+          },
+          "serviceProviderConfiguration": {
+            "connectionName": "__AUTOMATION_CONNECTION_NAME__",
+            "operationId": "createJob",
+            "serviceProviderId": "/serviceProviders/azureAutomation"
+          }
+        },
+        "runAfter": {
+          "Validate_Webhook_Auth": [ "SUCCEEDED" ]
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "stateful"
+}

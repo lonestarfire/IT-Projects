@@ -1,0 +1,108 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "actions": {
+      "Get_WebhookHeaderAuth": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "__KEYVAULT_CONNECTION_NAME__"
+            }
+          },
+          "method": "get",
+          "path": "/secrets/@{encodeURIComponent('__WEBHOOK_HEADER_AUTH_SECRET_NAME__')}/value"
+        },
+        "runAfter": {},
+        "runtimeConfiguration": {
+          "secureData": {
+            "properties": [
+              "inputs",
+              "outputs"
+            ]
+          }
+        }
+      },
+      "Condition": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "equals": [
+                "@triggerOutputs()?['headers']['x-webhook-auth']",
+                "@body('Get_WebhookHeaderAuth')?['value']"
+              ]
+            }
+          ]
+        },
+        "actions": {
+          "Get_Base64_API_Secret": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "referenceName": "__KEYVAULT_CONNECTION_NAME__"
+                }
+              },
+              "method": "get",
+              "path": "/secrets/@{encodeURIComponent('__HR_API_BASIC_AUTH_SECRET_NAME__')}/value"
+            },
+            "runtimeConfiguration": {
+              "secureData": {
+                "properties": [
+                  "inputs",
+                  "outputs"
+                ]
+              }
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "Terminate_Invalid_Authorization": {
+              "type": "Terminate",
+              "inputs": {
+                "runStatus": "Failed",
+                "runError": {
+                  "code": "401",
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "Get_WebhookHeaderAuth": [
+            "SUCCEEDED"
+          ]
+        }
+      },
+      "Initialize_variables": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "lastProcessedEventId",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "name": "Proceed",
+              "type": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "runAfter": {
+          "Condition": [
+            "SUCCEEDED"
+          ]
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "stateful"
+}
